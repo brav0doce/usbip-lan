@@ -2,9 +2,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
-using UsbIpClient.Models;
+using UsbIpClientApp.Models;
 
-namespace UsbIpClient
+namespace UsbIpClientApp
 {
     /// <summary>
     /// Implements the client side of the USB/IP protocol (Linux kernel spec).

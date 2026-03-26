@@ -5,9 +5,9 @@ using System.IO;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
-using UsbIpClient.Models;
+using UsbIpClientApp.Models;
 
-namespace UsbIpClient
+namespace UsbIpClientApp
 {
     /// <summary>
     /// Main application window: auto-discovers USB/IP servers on the LAN,

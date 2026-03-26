@@ -53,7 +53,7 @@ class UsbDeviceManager(private val context: Context) {
             UsbConstants.USB_CLASS_CDC_DATA      -> "CDC Data"
             UsbConstants.USB_CLASS_COMM          -> "Communications"
             UsbConstants.USB_CLASS_HID           -> "HID"
-            UsbConstants.USB_CLASS_PHYSICAL      -> "Physical"
+            5      -> "Physical"
             UsbConstants.USB_CLASS_STILL_IMAGE   -> "Still Image"
             UsbConstants.USB_CLASS_PRINTER       -> "Printer"
             UsbConstants.USB_CLASS_MASS_STORAGE  -> "Mass Storage"

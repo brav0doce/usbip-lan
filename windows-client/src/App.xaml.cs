@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace UsbIpClient
+namespace UsbIpClientApp
 {
     public partial class App : Application
     {

@@ -15,9 +15,9 @@ object UsbIpProtocol {
     const val USBIP_VERSION: Short = 0x0111  // version 1.1.1
 
     // Operation codes
-    const val OP_REQUEST_DEVLIST: Short = 0x8005
+    const val OP_REQUEST_DEVLIST: Short = 0x8005.toShort()
     const val OP_REPLY_DEVLIST: Short   = 0x0005
-    const val OP_REQUEST_IMPORT: Short  = 0x8003
+    const val OP_REQUEST_IMPORT: Short  = 0x8003.toShort()
     const val OP_REPLY_IMPORT: Short    = 0x0003
 
     // USB/IP commands (used after device import)

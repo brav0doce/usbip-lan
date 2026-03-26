@@ -214,7 +214,7 @@ class UsbIpServer(
         info: UsbDeviceManager.UsbDeviceInfo
     ) {
         val headerBuf = ByteArray(UsbIpProtocol.UsbIpHeader.BASIC_SIZE)
-        while (coroutineContext.isActive) {
+        while (currentCoroutineContext().isActive) {
             try {
                 input.readFully(headerBuf)
                 val hdr = UsbIpProtocol.UsbIpHeader.fromBytes(

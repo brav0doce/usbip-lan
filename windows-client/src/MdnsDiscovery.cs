@@ -2,9 +2,9 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Makaretu.Dns;
-using UsbIpClient.Models;
+using UsbIpClientApp.Models;
 
-namespace UsbIpClient
+namespace UsbIpClientApp
 {
     /// <summary>
     /// Discovers USB/IP servers on the local network using two methods:
@@ -18,7 +18,7 @@ namespace UsbIpClient
 
         private MulticastService?     _multicast;
         private ServiceDiscovery?     _sd;
-        private CancellationTokenSource? _scanCts;
+        private CancellationTokenSource? _scanCts = null;
         private bool _disposed;
 
         public event EventHandler<UsbIpServer>? ServerFound;
@@ -52,8 +52,6 @@ namespace UsbIpClient
         private void OnServiceInstanceDiscovered(object? sender, ServiceInstanceDiscoveryEventArgs e)
         {
             var name = e.ServiceInstanceName.ToString();
-            // Resolve SRV + A records to get IP/port
-            _sd?.ResolveServiceInstance(e.ServiceInstanceName);
 
             // Look for A record in the additional records
             foreach (var record in e.Message.AdditionalRecords)

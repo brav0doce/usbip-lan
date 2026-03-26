@@ -1,4 +1,4 @@
-namespace UsbIpClient.Models
+namespace UsbIpClientApp.Models
 {
     /// <summary>
     /// Represents a USB device exported by an Android USB/IP server.

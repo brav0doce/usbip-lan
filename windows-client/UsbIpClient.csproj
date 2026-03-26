@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net6.0-windows</TargetFramework>
-    <RootNamespace>UsbIpClient</RootNamespace>
+    <RootNamespace>UsbIpClientApp</RootNamespace>
     <AssemblyName>USBIPClient</AssemblyName>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
@@ -19,18 +19,10 @@
 
   <!-- Explicit ApplicationDefinition to point at the root App.xaml -->
   <ItemGroup>
-    <ApplicationDefinition Include="App.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </ApplicationDefinition>
   </ItemGroup>
 
   <!-- XAML pages under src/ -->
   <ItemGroup>
-    <Page Include="src\MainWindow.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
   </ItemGroup>
 
   <ItemGroup>
