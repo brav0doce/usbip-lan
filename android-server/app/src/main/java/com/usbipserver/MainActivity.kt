@@ -152,15 +152,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun getLocalIpAddress(): String {
         return try {
-            val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
-            val ipInt = wm.connectionInfo.ipAddress
-            val bytes = byteArrayOf(
-                (ipInt and 0xFF).toByte(),
-                (ipInt shr 8 and 0xFF).toByte(),
-                (ipInt shr 16 and 0xFF).toByte(),
-                (ipInt shr 24 and 0xFF).toByte()
-            )
-            java.net.InetAddress.getByAddress(bytes).hostAddress ?: "N/A"
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            for (intf in interfaces) {
+                if (intf.isUp && !intf.isLoopback) {
+                    for (addr in intf.inetAddresses) {
+                        if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                            return addr.hostAddress ?: "N/A"
+                        }
+                    }
+                }
+            }
+            "N/A"
         } catch (e: Exception) {
             "N/A"
         }

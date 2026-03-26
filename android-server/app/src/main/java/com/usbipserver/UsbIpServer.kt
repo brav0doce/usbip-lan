@@ -81,7 +81,7 @@ class UsbIpServer(
             )
 
             when (header.code) {
-                UsbIpProtocol.OP_REQUEST_DEVLIST -> handleDevList(input, output)
+                UsbIpProtocol.OP_REQUEST_DEVLIST -> handleDevList(output)
                 UsbIpProtocol.OP_REQUEST_IMPORT  -> handleImport(input, output, socket)
                 else -> Log.w(tag, "Unknown OP code: ${header.code}")
             }
@@ -98,7 +98,7 @@ class UsbIpServer(
     // OP_REP_DEVLIST
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun handleDevList(input: DataInputStream, output: DataOutputStream) {
+    private fun handleDevList(output: DataOutputStream) {
         val sharedDevices = deviceManager.devices.value.filter { it.isShared }
         Log.d(tag, "Sending device list: ${sharedDevices.size} device(s)")
 
