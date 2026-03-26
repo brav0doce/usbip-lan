@@ -1,0 +1,28 @@
+# Android build artifacts
+android-server/.gradle/
+android-server/app/build/
+android-server/build/
+android-server/local.properties
+*.apk
+*.aab
+
+# Windows / .NET build artifacts
+windows-client/bin/
+windows-client/obj/
+dist/
+*.exe
+*.dll
+*.pdb
+
+# IDE files
+.idea/
+*.iml
+.vs/
+*.user
+*.suo
+.DS_Store
+
+# Temp files
+*.tmp
+*.temp
+/tmp/

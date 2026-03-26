@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">USB/IP Server</string>
+    <string name="title_usb_devices">Dispositivos USB detectados</string>
+    <string name="server_stopped">Servidor parado</string>
+    <string name="server_running">Servidor activo en puerto 3240</string>
+    <string name="server_start">Iniciar servidor</string>
+    <string name="server_stop">Parar servidor</string>
+    <string name="no_devices">No hay dispositivos USB conectados</string>
+    <string name="device_shared">Compartido</string>
+    <string name="device_not_shared">No compartido</string>
+    <string name="permission_denied">Permiso denegado para el dispositivo USB</string>
+    <string name="client_connected">Cliente conectado: %1$s</string>
+    <string name="notification_channel_name">USB/IP Server</string>
+    <string name="notification_title">USB/IP Server activo</string>
+    <string name="notification_text">Publicando %1$d dispositivo(s) USB en la red</string>
+    <string name="ip_address">IP: %1$s</string>
+    <string name="connected_clients">Clientes: %1$d</string>
+    <string name="share_all">Compartir todos</string>
+    <string name="unshare_all">Dejar de compartir todos</string>
+</resources>
