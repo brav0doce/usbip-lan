@@ -31,7 +31,7 @@ public class UsbIpConfig extends ComponentActivity {
 	private ActivityResultLauncher<String> requestPermissionLauncher =
 			registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
 				// We don't actually care if the permission is granted or not. We will launch the service anyway.
-				startService(new Intent(UsbIpConfig.this, UsbIpService.class));
+				ContextCompat.startForegroundService(UsbIpConfig.this, new Intent(UsbIpConfig.this, UsbIpService.class));
 			});
 	
 	private void updateStatus() {
@@ -79,7 +79,7 @@ public class UsbIpConfig extends ComponentActivity {
 				}
 				else {
 					if (ContextCompat.checkSelfPermission(UsbIpConfig.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-						startService(new Intent(UsbIpConfig.this, UsbIpService.class));
+						ContextCompat.startForegroundService(UsbIpConfig.this, new Intent(UsbIpConfig.this, UsbIpService.class));
 					} else {
 						requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
 					}

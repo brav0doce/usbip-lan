@@ -35,7 +35,7 @@
 
 | Requisito | Mínimo |
 |-----------|--------|
-| Android   | 8.0 Oreo (API 26) |
+| Android   | 13 recomendado, 8.0 Oreo (API 26) mínimo |
 | USB Host  | Sí (casi todos los teléfonos/tablets modernos) |
 | Wi-Fi     | Misma red que el PC |
 | Permisos  | USB, Red, Notificaciones |
@@ -46,7 +46,7 @@
 |-----------|--------|
 | Windows   | 10 versión 1903 (Build 18362) |
 | .NET      | 6.0 Runtime |
-| Driver    | usbip-win2 (se instala automáticamente) |
+| Driver    | usbip-win2 x64 (se instala automáticamente) |
 | Wi-Fi/LAN | Misma red que el Android |
 | Privilegios | Administrador (solo para instalar el driver) |
 
@@ -58,7 +58,7 @@
 
 #### 1. Android – Instalar el APK del servidor
 
-1. Descarga `USBIPServer.apk` de la sección [Releases](../../releases/latest).
+1. Descarga `release/android/usbip-server-release.apk` desde la sección [Releases](../../releases/latest) o genera el APK con `./build-android.sh`.
 2. En el Android, activa **"Instalar apps de fuentes desconocidas"**:
    - *Ajustes → Seguridad → Instalar apps desconocidas* (varía según fabricante).
 3. Copia el APK al teléfono (cable USB, Bluetooth, WhatsApp…).
@@ -170,13 +170,13 @@ TCP :3240
 
 | Archivo | Descripción |
 |---------|-------------|
-| `MainActivity.kt` | UI principal: lista de USB, toggle servidor, IP, clientes |
-| `UsbIpService.kt` | Servicio foreground que mantiene el servidor activo en background |
-| `UsbIpServer.kt` | Servidor TCP en puerto 3240, implementa protocolo USB/IP |
-| `UsbDeviceManager.kt` | Enumera USB via Android USB Host API, gestiona permisos |
-| `MdnsAdvertiser.kt` | Anuncia el servidor en la red LAN via DNS-SD |
-| `UsbIpProtocol.kt` | Constantes y estructuras del protocolo USB/IP |
-| `UsbDeviceAdapter.kt` | Adapter RecyclerView para la lista de dispositivos |
+| `config/UsbIpConfig.java` | Pantalla principal para arrancar y parar el servidor foreground |
+| `service/UsbIpService.java` | Servicio foreground que mantiene el servidor activo en segundo plano |
+| `server/UsbIpServer.java` | Servidor TCP en puerto 3240, implementa el protocolo USB/IP |
+| `server/UsbRequestHandler.java` | Contrato que conecta el servidor TCP con la lógica USB real |
+| `server/protocol/*` | Paquetes y estructuras del protocolo USB/IP |
+| `usb/*` | Utilidades de control y descriptor USB sobre Android Host API |
+| `jni/usblib/usblib_jni.c` | Puente JNI para transfers de control y bulk en el kernel USB |
 
 ### Componentes Windows
 
@@ -187,6 +187,7 @@ TCP :3240
 | `MdnsDiscovery.cs` | Descubrimiento automático mDNS + escaneo de subred |
 | `Models/UsbDevice.cs` | Modelos de datos: UsbDevice, UsbIpServer |
 | `Install.ps1` | Script de instalación automática (driver + EXE) |
+| `build-windows.ps1` | Build x64 y bundle de instalación para `release/windows/` |
 
 ### Driver de kernel (usbip-win2)
 
@@ -212,11 +213,11 @@ cd usbip-lan
 cd android-server
 ./gradlew assembleDebug
 
-# El APK estará en:
-# android-server/app/build/outputs/apk/debug/app-debug.apk
+# El APK instalable estará en:
+# release/android/usbip-server-release.apk
 
 # Instalar directamente en un dispositivo conectado por USB:
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r ../release/android/usbip-server-release.apk
 ```
 
 Para APK de release con firma propia:
@@ -355,3 +356,12 @@ El componente [usbip-win2](https://github.com/vadimgrn/usbip-win2) de Vadim Grn 
   Hecho con ❤️ para compartir USB por la red LAN de forma sencilla.<br>
   Si te es útil, dale una ⭐ al repositorio.
 </div>
+## Soporte y despliegue
+
+El objetivo de este repositorio es funcionar de forma estable en Android 13 como servidor y en Windows 10 Pro x64 como cliente, con descubrimiento por mDNS y un escaneo TCP manual como respaldo.
+
+Los instaladores finales quedan en `release/android/` y `release/windows/`.
+
+Si instalas el cliente en un PC sin Internet, copia junto al ejecutable los archivos de usbip-win2: `usbip.exe`, `*.sys`, `*.inf` y `*.cat`, y ejecuta `Install.ps1` como administrador.
+
+Si el servidor Android se detiene al pasar a segundo plano, desactiva la optimización de batería para la app y permite las notificaciones del sistema.

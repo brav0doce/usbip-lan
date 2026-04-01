@@ -7,6 +7,7 @@ import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -44,12 +45,15 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiManager.WifiLock;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
+import android.util.Log;
 import android.util.SparseArray;
 
 import androidx.core.app.NotificationCompat;
@@ -65,8 +69,13 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	private WakeLock cpuWakeLock;
 	private WifiLock highPerfWifiLock;
 	private WifiLock lowLatencyWifiLock;
+	private NsdManager nsdManager;
+	private NsdManager.RegistrationListener nsdRegistrationListener;
+	private boolean nsdRegistered;
 	
 	private static final boolean DEBUG = false;
+	private static final String TAG = "UsbIpService";
+	private static final String NSD_SERVICE_TYPE = "_usbip._tcp.";
 	
 	private static final int NOTIFICATION_ID = 100;
 
@@ -80,6 +89,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			String action = intent.getAction();
 			if (ACTION_USB_PERMISSION.equals(action)) {
 				UsbDevice dev = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+				if (dev == null) {
+					return;
+				}
 
 				synchronized (dev) {
 					permission.put(dev.getDeviceId(), intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false));
@@ -118,6 +130,61 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		}
 		
 		startForeground(NOTIFICATION_ID, builder.build());
+	}
+
+	private void startMdnsAdvertisement() {
+		nsdManager = (NsdManager) getSystemService(Context.NSD_SERVICE);
+		if (nsdManager == null) {
+			Log.w(TAG, "NsdManager unavailable; mDNS advertisement disabled");
+			return;
+		}
+
+		NsdServiceInfo serviceInfo = new NsdServiceInfo();
+		serviceInfo.setServiceType(NSD_SERVICE_TYPE);
+		serviceInfo.setServiceName(Build.MODEL + "-usbip");
+		serviceInfo.setPort(UsbIpServer.PORT);
+
+		nsdRegistrationListener = new NsdManager.RegistrationListener() {
+			@Override
+			public void onServiceRegistered(NsdServiceInfo NsdServiceInfo) {
+				nsdRegistered = true;
+				Log.i(TAG, "mDNS registered as " + NsdServiceInfo.getServiceName());
+			}
+
+			@Override
+			public void onRegistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
+				nsdRegistered = false;
+				Log.w(TAG, "mDNS registration failed: " + errorCode);
+			}
+
+			@Override
+			public void onServiceUnregistered(NsdServiceInfo arg0) {
+				nsdRegistered = false;
+			}
+
+			@Override
+			public void onUnregistrationFailed(NsdServiceInfo serviceInfo, int errorCode) {
+				Log.w(TAG, "mDNS unregistration failed: " + errorCode);
+			}
+		};
+
+		try {
+			nsdManager.registerService(serviceInfo, NsdManager.PROTOCOL_DNS_SD, nsdRegistrationListener);
+		} catch (Exception e) {
+			Log.w(TAG, "Unable to register mDNS service", e);
+		}
+	}
+
+	private void stopMdnsAdvertisement() {
+		if (nsdManager == null || nsdRegistrationListener == null || !nsdRegistered) {
+			return;
+		}
+
+		try {
+			nsdManager.unregisterService(nsdRegistrationListener);
+		} catch (Exception e) {
+			Log.w(TAG, "Unable to unregister mDNS service", e);
+		}
 	}
 	
 	@SuppressLint({"UseSparseArrays", "UnspecifiedRegisterReceiverFlag"})
@@ -164,6 +231,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		server = new UsbIpServer();
 		server.start(this);
+		startMdnsAdvertisement();
 
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 			NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Service Info", NotificationManager.IMPORTANCE_DEFAULT);
@@ -174,11 +242,17 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		updateNotification();
 	}
 	
+	@Override
 	public void onDestroy() {
 		super.onDestroy();
 		
 		server.stop();
-		unregisterReceiver(usbReceiver);
+		stopMdnsAdvertisement();
+		try {
+			unregisterReceiver(usbReceiver);
+		} catch (IllegalArgumentException ignored) {
+			// Receiver may already be unregistered if startup failed mid-way.
+		}
 
 		if (lowLatencyWifiLock != null) {
 			lowLatencyWifiLock.release();
@@ -314,23 +388,47 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	}
 	
 	private static int busIdToBusNum(String busId) {
-		if (busId.indexOf('-') == -1) {
+		if (busId == null) {
 			return -1;
 		}
-		
-		return Integer.parseInt(busId.substring(0, busId.indexOf('-')));
+
+		int sep = busId.indexOf('-');
+		if (sep <= 0) {
+			return -1;
+		}
+
+		try {
+			return Integer.parseInt(busId.substring(0, sep));
+		} catch (NumberFormatException e) {
+			return -1;
+		}
 	}
 	
 	private static int busIdToDevNum(String busId) {
-		if (busId.indexOf('-') == -1) {
+		if (busId == null) {
 			return -1;
 		}
-		
-		return Integer.parseInt(busId.substring(busId.indexOf('-')+1));
+
+		int sep = busId.indexOf('-');
+		if (sep < 0 || sep == busId.length() - 1) {
+			return -1;
+		}
+
+		try {
+			return Integer.parseInt(busId.substring(sep + 1));
+		} catch (NumberFormatException e) {
+			return -1;
+		}
 	}
 	
 	private static int busIdToDeviceId(String busId) {
-		return devIdToDeviceId(((busIdToBusNum(busId) << 16) & 0xFF0000) | busIdToDevNum(busId));
+		int busNum = busIdToBusNum(busId);
+		int devNum = busIdToDevNum(busId);
+		if (busNum < 0 || devNum < 0) {
+			return -1;
+		}
+
+		return devIdToDeviceId(((busNum << 16) & 0xFF0000) | devNum);
 	}
 
 	private UsbDeviceInfo getInfoForDevice(UsbDevice dev, UsbDeviceConnection devConn) {
@@ -694,7 +792,12 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 	}
 	
 	private UsbDevice getDevice(String busId) {
-		return getDevice(busIdToDeviceId(busId));
+		int deviceId = busIdToDeviceId(busId);
+		if (deviceId < 0) {
+			return null;
+		}
+
+		return getDevice(deviceId);
 	}
 
 	@Override
@@ -835,9 +938,11 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		boolean found = false;
 		synchronized (context.activeMessages) {
-			for (UsbIpSubmitUrb urbMsg : context.activeMessages) {
+			Iterator<UsbIpSubmitUrb> iter = context.activeMessages.iterator();
+			while (iter.hasNext()) {
+				UsbIpSubmitUrb urbMsg = iter.next();
 				if (msg.seqNumToUnlink == urbMsg.seqNum) {
-					context.activeMessages.remove(urbMsg);
+					iter.remove();
 					found = true;
 					break;
 				}

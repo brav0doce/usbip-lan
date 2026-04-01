@@ -72,10 +72,21 @@ namespace UsbIpClientApp
         {
             Dispatcher.InvokeAsync(() =>
             {
-                if (_servers.All(s => s.IpAddress != server.IpAddress))
+                var existing = _servers.FirstOrDefault(s => s.IpAddress == server.IpAddress);
+                if (existing == null)
                 {
                     _servers.Add(server);
                     SetStatus($"Servidor encontrado: {server}");
+                    return;
+                }
+
+                existing.Port = server.Port;
+                if (!string.IsNullOrWhiteSpace(server.Hostname))
+                    existing.Hostname = server.Hostname;
+
+                if (_selectedServer?.IpAddress == existing.IpAddress)
+                {
+                    TxtServerInfo.Text = $"Servidor: {existing.IpAddress}:{existing.Port}";
                 }
             });
         }
@@ -84,8 +95,22 @@ namespace UsbIpClientApp
         {
             Dispatcher.InvokeAsync(() =>
             {
-                var s = _servers.FirstOrDefault(x => x.Hostname == hostname);
-                if (s != null) _servers.Remove(s);
+                var normalized = hostname.TrimEnd('.');
+                var s = _servers.FirstOrDefault(x =>
+                    x.Hostname.Equals(hostname, StringComparison.OrdinalIgnoreCase) ||
+                    x.Hostname.TrimEnd('.').Equals(normalized, StringComparison.OrdinalIgnoreCase));
+                if (s == null)
+                    return;
+
+                _servers.Remove(s);
+
+                if (_selectedServer?.IpAddress == s.IpAddress)
+                {
+                    _selectedServer = null;
+                    _devices.Clear();
+                    TxtServerInfo.Text = "Selecciona un servidor de la lista";
+                    UpdateButtonState();
+                }
             });
         }
 
@@ -103,6 +128,9 @@ namespace UsbIpClientApp
             SetStatus("Escaneando la red LAN …");
             _servers.Clear();
             _devices.Clear();
+            _selectedServer = null;
+            TxtServerInfo.Text = "Selecciona un servidor de la lista";
+            UpdateButtonState();
 
             try
             {
@@ -151,6 +179,11 @@ namespace UsbIpClientApp
                 TxtServerInfo.Text = $"Servidor: {_selectedServer.IpAddress}:{_selectedServer.Port}";
                 _ = RefreshDevicesAsync(_selectedServer);
             }
+            UpdateButtonState();
+        }
+
+        private void LstDevices_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
             UpdateButtonState();
         }
 
@@ -264,15 +297,13 @@ namespace UsbIpClientApp
 
         private void BtnInstallDriver_Click(object sender, RoutedEventArgs e)
         {
-            var driverDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "driver");
-            var installScript = Path.Combine(driverDir, "usbip_install.ps1");
+            var installScript = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Install.ps1");
 
             if (!File.Exists(installScript))
             {
                 MessageBox.Show(
-                    "Script de instalación no encontrado.\n" +
-                    "Descarga usbip-win2 y copia los archivos en la carpeta 'driver'.\n\n" +
-                    "Ver README para instrucciones detalladas.",
+                    "No se encontró Install.ps1 junto al ejecutable.\n" +
+                    "Ejecuta el instalador distribuido en release/windows o instala usbip-win2 manualmente.",
                     "Driver no encontrado",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
@@ -310,6 +341,11 @@ namespace UsbIpClientApp
                 server.DeviceCount = devices.Count;
                 foreach (var d in devices)
                     _devices.Add(d);
+
+                if (_selectedServer?.IpAddress == server.IpAddress)
+                {
+                    TxtServerInfo.Text = $"Servidor: {server.IpAddress}:{server.Port} · {devices.Count} dispositivo(s)";
+                }
 
                 SetStatus($"{devices.Count} dispositivo(s) exportado(s) por {server.IpAddress}.");
             }

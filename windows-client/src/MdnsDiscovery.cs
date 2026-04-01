@@ -14,11 +14,10 @@ namespace UsbIpClientApp
     public class MdnsDiscovery : IDisposable
     {
         public const int UsbIpPort = 3240;
-        private const string ServiceType = "_usbip._tcp";
+        private static readonly string[] ServiceTypes = { "_usbip._tcp", "_usbip._tcp.local" };
 
         private MulticastService?     _multicast;
         private ServiceDiscovery?     _sd;
-        private CancellationTokenSource? _scanCts = null;
         private bool _disposed;
 
         public event EventHandler<UsbIpServer>? ServerFound;
@@ -30,6 +29,8 @@ namespace UsbIpClientApp
 
         public void StartMdns()
         {
+            StopMdns();
+
             _multicast = new MulticastService();
             _sd        = new ServiceDiscovery(_multicast);
 
@@ -37,7 +38,10 @@ namespace UsbIpClientApp
             _sd.ServiceInstanceShutdown  += OnServiceInstanceShutdown;
 
             _multicast.Start();
-            _sd.QueryServiceInstances(ServiceType);
+            foreach (var serviceType in ServiceTypes)
+            {
+                _sd.QueryServiceInstances(serviceType);
+            }
         }
 
         public void StopMdns()
@@ -53,27 +57,35 @@ namespace UsbIpClientApp
         {
             var name = e.ServiceInstanceName.ToString();
 
-            // Look for A record in the additional records
-            foreach (var record in e.Message.AdditionalRecords)
+            int port = UsbIpPort;
+            foreach (var srv in e.Message.AdditionalRecords.OfType<SRVRecord>())
             {
-                if (record is ARecord aRecord)
-                {
-                    // Try to extract port from SRV record
-                    int port = UsbIpPort;
-                    foreach (var srv in e.Message.AdditionalRecords.OfType<SRVRecord>())
-                    {
-                        port = srv.Port;
-                        break;
-                    }
+                port = srv.Port;
+                break;
+            }
 
-                    var server = new UsbIpServer
-                    {
-                        IpAddress = aRecord.Address.ToString(),
-                        Port      = port,
-                        Hostname  = name
-                    };
-                    ServerFound?.Invoke(this, server);
+            // Look for A/AAAA records in all sections because some stacks don't
+            // place them in AdditionalRecords.
+            var addressRecords = e.Message.Answers
+                .Concat(e.Message.AuthorityRecords)
+                .Concat(e.Message.AdditionalRecords)
+                .OfType<AddressRecord>()
+                .DistinctBy(r => r.Address.ToString());
+
+            foreach (var addressRecord in addressRecords)
+            {
+                if (addressRecord.Address.AddressFamily != AddressFamily.InterNetwork)
+                {
+                    continue;
                 }
+
+                var server = new UsbIpServer
+                {
+                    IpAddress = addressRecord.Address.ToString(),
+                    Port      = port,
+                    Hostname  = name
+                };
+                ServerFound?.Invoke(this, server);
             }
         }
 
@@ -162,8 +174,6 @@ namespace UsbIpClientApp
             if (_disposed) return;
             _disposed = true;
             StopMdns();
-            _scanCts?.Cancel();
-            _scanCts?.Dispose();
         }
     }
 }

@@ -76,73 +76,56 @@ if (-not (Test-Path $InstallDir)) {
 }
 Write-OK "Directorio listo."
 
-# ─── download usbip-win2 ──────────────────────────────────────────────────────
+# ─── install usbip-win2 (official installer) ─────────────────────────────────
 
-Write-Step "Descargando usbip-win2 …"
+Write-Step "Descargando instalador oficial usbip-win2 …"
 
 $apiUrl  = "https://api.github.com/repos/vadimgrn/usbip-win2/releases/latest"
-$headers = @{ "User-Agent" = "usbip-lan-installer/1.0" }
+$headers = @{ "User-Agent" = "usbip-lan-installer/1.1" }
+$usbipExe = Join-Path $env:ProgramFiles "USBip\usbip.exe"
 
 try {
-    $release  = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-    $asset    = $release.assets | Where-Object { $_.name -like "*x64*.zip" -or $_.name -like "*.zip" } | Select-Object -First 1
+    $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+    $asset = $release.assets |
+        Where-Object { $_.name -like "*x64-release.exe" } |
+        Select-Object -First 1
 
     if (-not $asset) {
-        Write-Fail "No se encontró el archivo ZIP en la última release de usbip-win2."
+        Write-Fail "No se encontró el instalador x64 de usbip-win2 en la última release."
         Write-Host "  Descarga manualmente desde: https://github.com/vadimgrn/usbip-win2/releases"
         exit 1
     }
 
-    $zipPath = Join-Path $env:TEMP "usbip-win2.zip"
+    $installerPath = Join-Path $env:TEMP $asset.name
     Write-Host "      Descargando $($asset.name) …"
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath -UseBasicParsing
 
-    Write-Step "Extrayendo archivos de usbip-win2 …"
-    $extractDir = Join-Path $env:TEMP "usbip-win2-extracted"
-    if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
-    Expand-Archive -Path $zipPath -DestinationPath $extractDir
+    Write-Step "Instalando usbip-win2 (drivers + usbip.exe) …"
+    $proc = Start-Process -FilePath $installerPath `
+        -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" `
+        -Verb RunAs -PassThru -Wait
 
-    # Copy usbip.exe and driver files
-    Get-ChildItem $extractDir -Recurse -Include "usbip.exe","*.sys","*.inf","*.cat" |
-        ForEach-Object {
-            Copy-Item $_.FullName $InstallDir -Force
-        }
-
-    Write-OK "usbip-win2 instalado."
-
-} catch {
-    Write-Fail "Error descargando usbip-win2: $_"
-    Write-Host ""
-    Write-Host "  Instalación manual de usbip-win2:" -ForegroundColor Yellow
-    Write-Host "    1. Ve a https://github.com/vadimgrn/usbip-win2/releases"
-    Write-Host "    2. Descarga el archivo ZIP más reciente (x64)"
-    Write-Host "    3. Extrae y copia usbip.exe y los archivos .sys/.inf/.cat a $InstallDir"
-    Write-Host "    4. Ejecuta este script de nuevo."
-    Write-Host ""
-}
-
-# ─── install kernel driver ────────────────────────────────────────────────────
-
-Write-Step "Instalando driver de kernel USB/IP …"
-
-$infFile = Get-ChildItem $InstallDir -Filter "*.inf" | Select-Object -First 1
-if ($infFile) {
-    try {
-        $result = Start-Process "pnputil.exe" `
-            -ArgumentList "/add-driver `"$($infFile.FullName)`" /install" `
-            -Wait -PassThru -NoNewWindow
-
-        if ($result.ExitCode -eq 0) {
-            Write-OK "Driver instalado correctamente."
-        } else {
-            Write-Host "      Advertencia: pnputil devolvió código $($result.ExitCode)" -ForegroundColor Yellow
-            Write-Host "      El driver puede necesitar firma habilitada (test signing)."
-        }
-    } catch {
-        Write-Host "      No se pudo instalar el driver automáticamente: $_" -ForegroundColor Yellow
+    if ($proc.ExitCode -ne 0) {
+        Write-Fail "El instalador usbip-win2 devolvió código $($proc.ExitCode)."
+        exit 1
     }
-} else {
-    Write-Host "      No se encontró archivo .inf – saltando instalación del driver." -ForegroundColor Yellow
+
+    if (-not (Test-Path $usbipExe)) {
+        Write-Fail "usbip.exe no apareció en $usbipExe tras la instalación."
+        exit 1
+    }
+
+    Write-OK "usbip-win2 instalado correctamente."
+}
+catch {
+    Write-Fail "Error instalando usbip-win2: $_"
+    Write-Host ""
+    Write-Host "  Instalación manual:" -ForegroundColor Yellow
+    Write-Host "    1. Descarga USBip-*-x64-release.exe desde https://github.com/vadimgrn/usbip-win2/releases"
+    Write-Host "    2. Ejecuta el instalador como Administrador"
+    Write-Host "    3. Repite la instalación del cliente"
+    Write-Host ""
+    exit 1
 }
 
 # ─── copy client executable ───────────────────────────────────────────────────

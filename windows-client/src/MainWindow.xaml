@@ -205,6 +205,7 @@
                 <ListView x:Name="LstDevices"
                           BorderThickness="0"
                           Background="Transparent"
+                          SelectionChanged="LstDevices_SelectionChanged"
                           SelectionMode="Single">
                     <ListView.View>
                         <GridView>

@@ -13,7 +13,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $projectDir = Join-Path $PSScriptRoot "windows-client"
-$outDir     = Join-Path $PSScriptRoot "dist\windows"
+$outDir     = Join-Path $PSScriptRoot "release\windows"
 
 Write-Host "`n  Building USB/IP LAN Client …`n"
 
@@ -26,6 +26,7 @@ dotnet publish "$projectDir\UsbIpClient.csproj" `
     --runtime win-x64 `
     --self-contained false `
     --output $outDir `
+    /p:EnableWindowsTargeting=true `
     /p:PublishSingleFile=true `
     /p:IncludeNativeLibrariesForSelfExtract=false
 
@@ -35,6 +36,13 @@ if (Test-Path $exe) {
     # Copy the installer script alongside the EXE
     Copy-Item "$projectDir\Install.ps1" $outDir -Force
     Write-Host "  ✓ Install.ps1 copied to $outDir"
+
+    Remove-Item (Join-Path $outDir '*.pdb') -Force -ErrorAction SilentlyContinue
+
+    $zipPath = Join-Path $PSScriptRoot "release\windows\usbip-client-windows-x64-release.zip"
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+    Compress-Archive -Path "$outDir\USBIPClient.exe", "$outDir\Install.ps1" -DestinationPath $zipPath -Force
+    Write-Host "  ✓ Installer bundle created: $zipPath"
 } else {
     Write-Host "  Build failed – EXE not found." -ForegroundColor Red
     exit 1

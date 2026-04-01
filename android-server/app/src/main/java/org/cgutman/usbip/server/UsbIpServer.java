@@ -74,6 +74,9 @@ public class UsbIpServer {
 	
 	private boolean handleDevRequest(Socket s) throws IOException {
 		UsbIpDevicePacket inMsg = UsbIpDevicePacket.read(s.getInputStream());
+		if (inMsg == null) {
+			return false;
+		}
 		
 		if (inMsg.command == UsbIpDevicePacket.USBIP_CMD_SUBMIT) {
 			handler.submitUrbRequest(s, (UsbIpSubmitUrb) inMsg);
@@ -95,11 +98,15 @@ public class UsbIpServer {
 			s.close();
 		} catch (IOException e) {}
 		
-		t.interrupt();
-		
-		try {
-			t.join();
-		} catch (InterruptedException e) {}
+		if (t != null) {
+			t.interrupt();
+
+			if (t != Thread.currentThread()) {
+				try {
+					t.join();
+				} catch (InterruptedException e) {}
+			}
+		}
 	}
 	
 	private void handleClient(final Socket s) {
@@ -184,5 +191,7 @@ public class UsbIpServer {
 				entry.getValue().join();
 			} catch (InterruptedException e) {}
 		}
+
+		connections.clear();
 	}
 }

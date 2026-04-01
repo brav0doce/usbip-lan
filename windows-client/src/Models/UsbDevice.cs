@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+
 namespace UsbIpClientApp.Models
 {
     /// <summary>
@@ -62,13 +65,49 @@ namespace UsbIpClientApp.Models
     /// <summary>
     /// Represents a discovered Android USB/IP server on the LAN.
     /// </summary>
-    public class UsbIpServer
+    public class UsbIpServer : INotifyPropertyChanged
     {
-        public string IpAddress  { get; set; } = string.Empty;
-        public int    Port       { get; set; } = 3240;
-        public string Hostname   { get; set; } = string.Empty;
-        public int    DeviceCount { get; set; }
+        private string _ipAddress = string.Empty;
+        private int _port = 3240;
+        private string _hostname = string.Empty;
+        private int _deviceCount;
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public string IpAddress
+        {
+            get => _ipAddress;
+            set => SetField(ref _ipAddress, value);
+        }
+
+        public int Port
+        {
+            get => _port;
+            set => SetField(ref _port, value);
+        }
+
+        public string Hostname
+        {
+            get => _hostname;
+            set => SetField(ref _hostname, value);
+        }
+
+        public int DeviceCount
+        {
+            get => _deviceCount;
+            set => SetField(ref _deviceCount, value);
+        }
 
         public override string ToString() => $"{Hostname} ({IpAddress}:{Port})";
+
+        private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value))
+                return false;
+
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            return true;
+        }
     }
 }

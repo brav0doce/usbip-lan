@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using System.Runtime.InteropServices;
 using UsbIpClientApp.Models;
 
 namespace UsbIpClientApp
@@ -28,8 +29,7 @@ namespace UsbIpClientApp
         private const short OP_REP_IMPORT  = 0x0003;
         private const int   ST_OK = 0;
 
-        private static readonly string UsbipExePath =
-            Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "usbip.exe");
+        private static string? _usbipExePath;
 
         private bool _disposed;
 
@@ -57,10 +57,13 @@ namespace UsbIpClientApp
             writer.Flush();
 
             // Read OP_REP_DEVLIST header (16 bytes)
-            var version = ReadBigEndianInt16(reader);
+            ReadBigEndianInt16(reader); // protocol version
             var code    = ReadBigEndianInt16(reader);
             var status  = ReadBigEndianInt32(reader);
             var count   = ReadBigEndianInt32(reader);
+
+            if (code != OP_REP_DEVLIST)
+                throw new InvalidOperationException($"Unexpected USB/IP reply code: 0x{(ushort)code:X4}");
 
             if (status != ST_OK)
                 throw new InvalidOperationException($"Server returned status {status}");
@@ -86,11 +89,16 @@ namespace UsbIpClientApp
             UsbDevice device,
             CancellationToken ct = default)
         {
-            if (!File.Exists(UsbipExePath))
-                return (false, $"usbip.exe not found at {UsbipExePath}.\nInstall usbip-win2 first (see README).");
+            if (device.Server == null)
+                return (false, "El dispositivo no tiene un servidor asociado.");
 
-            var args = $"attach --remote={device.Server!.IpAddress} --busid={device.BusId}";
-            return await RunUsbipAsync(args, ct);
+            var usbipExe = ResolveUsbipExePath();
+            if (usbipExe == null)
+                return (false, "usbip.exe no encontrado. Instala usbip-win2 desde Install.ps1 o el instalador oficial.");
+
+            // Use the command format documented by usbip-win2.
+            var args = $"attach -r {device.Server.IpAddress} -b {device.BusId}";
+            return await RunUsbipAsync(usbipExe, args, ct);
         }
 
         /// <summary>
@@ -100,11 +108,12 @@ namespace UsbIpClientApp
             int portNumber,
             CancellationToken ct = default)
         {
-            if (!File.Exists(UsbipExePath))
-                return (false, "usbip.exe not found. Install usbip-win2 first.");
+            var usbipExe = ResolveUsbipExePath();
+            if (usbipExe == null)
+                return (false, "usbip.exe no encontrado. Instala usbip-win2 primero.");
 
-            var args = $"detach --port={portNumber}";
-            return await RunUsbipAsync(args, ct);
+            var args = $"detach -p {portNumber}";
+            return await RunUsbipAsync(usbipExe, args, ct);
         }
 
         /// <summary>
@@ -113,10 +122,11 @@ namespace UsbIpClientApp
         public async Task<(bool Success, string Output)> ListPortsAsync(
             CancellationToken ct = default)
         {
-            if (!File.Exists(UsbipExePath))
-                return (false, "usbip.exe not found. Install usbip-win2 first.");
+            var usbipExe = ResolveUsbipExePath();
+            if (usbipExe == null)
+                return (false, "usbip.exe no encontrado. Instala usbip-win2 primero.");
 
-            return await RunUsbipAsync("port", ct);
+            return await RunUsbipAsync(usbipExe, "port", ct);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -124,11 +134,13 @@ namespace UsbIpClientApp
         // ─────────────────────────────────────────────────────────────────────
 
         private static async Task<(bool, string)> RunUsbipAsync(
-            string args, CancellationToken ct)
+            string usbipExe,
+            string args,
+            CancellationToken ct)
         {
             var psi = new ProcessStartInfo
             {
-                FileName               = UsbipExePath,
+                FileName               = usbipExe,
                 Arguments              = args,
                 RedirectStandardOutput = true,
                 RedirectStandardError  = true,
@@ -142,7 +154,14 @@ namespace UsbIpClientApp
             proc.OutputDataReceived += (_, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
             proc.ErrorDataReceived  += (_, e) => { if (e.Data != null) sb.AppendLine(e.Data); };
 
-            proc.Start();
+            try
+            {
+                proc.Start();
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message);
+            }
             proc.BeginOutputReadLine();
             proc.BeginErrorReadLine();
 
@@ -150,14 +169,49 @@ namespace UsbIpClientApp
             return (proc.ExitCode == 0, sb.ToString().Trim());
         }
 
+        private static string? ResolveUsbipExePath()
+        {
+            if (_usbipExePath != null && File.Exists(_usbipExePath))
+                return _usbipExePath;
+
+            var candidates = new List<string>
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "usbip.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "USBip", "usbip.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "USBip", "usbip.exe")
+            };
+
+            var pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            foreach (var entry in pathValue.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                candidates.Add(Path.Combine(entry.Trim(), "usbip.exe"));
+            }
+
+            foreach (var candidate in candidates.Where(File.Exists))
+            {
+                _usbipExePath = candidate;
+                return candidate;
+            }
+
+            // If execution reaches here and the app runs under a shell where usbip is resolvable
+            // only by command name, let ProcessStartInfo resolve it.
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                _usbipExePath = "usbip.exe";
+                return _usbipExePath;
+            }
+
+            return null;
+        }
+
         private static UsbDevice ReadDeviceEntry(BinaryReader reader, UsbIpServer server)
         {
             // path: 256 bytes
-            var pathBytes = reader.ReadBytes(256);
+            var pathBytes = ReadExact(reader, 256);
             var path = Encoding.ASCII.GetString(pathBytes).TrimEnd('\0');
 
             // busId: 32 bytes
-            var busIdBytes = reader.ReadBytes(32);
+            var busIdBytes = ReadExact(reader, 32);
             var busId = Encoding.ASCII.GetString(busIdBytes).TrimEnd('\0');
 
             var busNum   = ReadBigEndianInt32(reader);
@@ -176,7 +230,7 @@ namespace UsbIpClientApp
 
             // Read interface entries (4 bytes each)
             for (int i = 0; i < numIfaces; i++)
-                reader.ReadBytes(4);
+                ReadExact(reader, 4);
 
             return new UsbDevice
             {
@@ -205,16 +259,24 @@ namespace UsbIpClientApp
 
         private static short ReadBigEndianInt16(BinaryReader r)
         {
-            var bytes = r.ReadBytes(2);
+            var bytes = ReadExact(r, 2);
             if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
             return BitConverter.ToInt16(bytes, 0);
         }
 
         private static int ReadBigEndianInt32(BinaryReader r)
         {
-            var bytes = r.ReadBytes(4);
+            var bytes = ReadExact(r, 4);
             if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
             return BitConverter.ToInt32(bytes, 0);
+        }
+
+        private static byte[] ReadExact(BinaryReader reader, int count)
+        {
+            var bytes = reader.ReadBytes(count);
+            if (bytes.Length != count)
+                throw new EndOfStreamException($"Expected {count} bytes but received {bytes.Length}.");
+            return bytes;
         }
 
         private static short ReverseBytes(short value)
