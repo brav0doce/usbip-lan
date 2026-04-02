@@ -1,0 +1,12 @@
+--- android-server/app/src/main/java/org/cgutman/usbip/service/UsbIpService.java
++++ android-server/app/src/main/java/org/cgutman/usbip/service/UsbIpService.java
+@@ -211,7 +211,8 @@
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(ACTION_USB_PERMISSION);
+                filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+-                       registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED);
++               if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
++                       registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED);
+                }
+                else {
+                        registerReceiver(usbReceiver, filter);

@@ -83,22 +83,28 @@ Write-Step "Descargando instalador oficial usbip-win2 …"
 $apiUrl  = "https://api.github.com/repos/vadimgrn/usbip-win2/releases/latest"
 $headers = @{ "User-Agent" = "usbip-lan-installer/1.1" }
 $usbipExe = Join-Path $env:ProgramFiles "USBip\usbip.exe"
+$localInstaller = Join-Path $PSScriptRoot "usbip-win2-installer.exe"
 
 try {
-    $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
-    $asset = $release.assets |
-        Where-Object { $_.name -like "*x64-release.exe" } |
-        Select-Object -First 1
+    if (Test-Path $localInstaller) {
+        Write-Step "Usando instalador usbip-win2 incluido en el paquete …"
+        $installerPath = $localInstaller
+    } else {
+        $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+        $asset = $release.assets |
+            Where-Object { $_.name -like "*x64-release.exe" } |
+            Select-Object -First 1
 
-    if (-not $asset) {
-        Write-Fail "No se encontró el instalador x64 de usbip-win2 en la última release."
-        Write-Host "  Descarga manualmente desde: https://github.com/vadimgrn/usbip-win2/releases"
-        exit 1
+        if (-not $asset) {
+            Write-Fail "No se encontró el instalador x64 de usbip-win2 en la última release."
+            Write-Host "  Descarga manualmente desde: https://github.com/vadimgrn/usbip-win2/releases"
+            exit 1
+        }
+
+        $installerPath = Join-Path $env:TEMP $asset.name
+        Write-Host "      Descargando $($asset.name) …"
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath -UseBasicParsing
     }
-
-    $installerPath = Join-Path $env:TEMP $asset.name
-    Write-Host "      Descargando $($asset.name) …"
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $installerPath -UseBasicParsing
 
     Write-Step "Instalando usbip-win2 (drivers + usbip.exe) …"
     $proc = Start-Process -FilePath $installerPath `
@@ -139,6 +145,26 @@ if (Test-Path $srcExe) {
 } else {
     Write-Host "      USBIPClient.exe no encontrado en $PSScriptRoot" -ForegroundColor Yellow
     Write-Host "      Coloca el ejecutable junto a este script e instala de nuevo."
+}
+
+$usbipCandidates = @(
+    (Join-Path $env:ProgramFiles "USBip\usbip.exe"),
+    (Join-Path $env:ProgramFiles "usbip-win2\usbip.exe"),
+    (Join-Path $env:ProgramFilesX86 "USBip\usbip.exe"),
+    (Join-Path $env:ProgramFilesX86 "usbip-win2\usbip.exe")
+)
+
+$usbipSource = $usbipCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $usbipSource) {
+    $usbipSource = Get-ChildItem -Path @($env:ProgramFiles, $env:ProgramFilesX86) -Filter "usbip.exe" -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty FullName -First 1
+}
+
+if ($usbipSource) {
+    Copy-Item $usbipSource (Join-Path $InstallDir "usbip.exe") -Force
+    Write-OK "usbip.exe copiado desde $usbipSource."
+} else {
+    Write-Host "      No se pudo localizar usbip.exe para copiarlo al directorio del cliente." -ForegroundColor Yellow
 }
 
 # ─── add to PATH ──────────────────────────────────────────────────────────────

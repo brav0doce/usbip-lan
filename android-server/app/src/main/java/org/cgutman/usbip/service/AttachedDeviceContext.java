@@ -5,10 +5,11 @@ import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 
 import org.cgutman.usbip.server.protocol.dev.UsbIpSubmitUrb;
 
-import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class AttachedDeviceContext {
@@ -16,6 +17,7 @@ public class AttachedDeviceContext {
     public UsbDeviceConnection devConn;
     public UsbConfiguration activeConfiguration;
     public SparseArray<UsbEndpoint> activeConfigurationEndpointsByNumDir;
+    public SparseIntArray selectedAlternateSettings;
     public ThreadPoolExecutor requestPool;
-    public HashSet<UsbIpSubmitUrb> activeMessages;
+    public Set<UsbIpSubmitUrb> activeMessages;
 }

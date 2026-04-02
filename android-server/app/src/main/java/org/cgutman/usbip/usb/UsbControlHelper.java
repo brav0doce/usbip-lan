@@ -7,6 +7,7 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.os.Build;
 import android.util.SparseArray;
+import android.util.SparseIntArray;
 
 import org.cgutman.usbip.service.AttachedDeviceContext;
 
@@ -30,6 +31,59 @@ public class UsbControlHelper {
 	private static final int FEATURE_VALUE_HALT = 0x00;
 	
 	private static final int DEVICE_DESCRIPTOR_TYPE = 1;
+
+	private static void claimAllActiveInterfaces(AttachedDeviceContext deviceContext) {
+		if (deviceContext.activeConfiguration == null) {
+			return;
+		}
+
+		for (int i = 0; i < deviceContext.activeConfiguration.getInterfaceCount(); i++) {
+			UsbInterface iface = deviceContext.activeConfiguration.getInterface(i);
+			int selectedAlt = deviceContext.selectedAlternateSettings.get(iface.getId(), -1);
+			if (selectedAlt == iface.getAlternateSetting()) {
+				if (!deviceContext.devConn.claimInterface(iface, true)) {
+					System.err.println("Unable to claim interface: " + iface.getId() + "/alt=" + iface.getAlternateSetting());
+				}
+			}
+		}
+	}
+
+	private static void rebuildActiveEndpointMap(AttachedDeviceContext deviceContext) {
+		deviceContext.activeConfigurationEndpointsByNumDir = new SparseArray<>();
+		if (deviceContext.activeConfiguration == null) {
+			return;
+		}
+
+		for (int i = 0; i < deviceContext.activeConfiguration.getInterfaceCount(); i++) {
+			UsbInterface iface = deviceContext.activeConfiguration.getInterface(i);
+			int selectedAlt = deviceContext.selectedAlternateSettings.get(iface.getId(), -1);
+			if (selectedAlt != iface.getAlternateSetting()) {
+				continue;
+			}
+
+			for (int j = 0; j < iface.getEndpointCount(); j++) {
+				UsbEndpoint endp = iface.getEndpoint(j);
+				deviceContext.activeConfigurationEndpointsByNumDir.put(
+						endp.getDirection() | endp.getEndpointNumber(),
+						endp);
+			}
+		}
+	}
+
+	private static void initializeDefaultAlternateSettings(AttachedDeviceContext deviceContext) {
+		deviceContext.selectedAlternateSettings = new SparseIntArray();
+		if (deviceContext.activeConfiguration == null) {
+			return;
+		}
+
+		for (int i = 0; i < deviceContext.activeConfiguration.getInterfaceCount(); i++) {
+			UsbInterface iface = deviceContext.activeConfiguration.getInterface(i);
+			int ifaceId = iface.getId();
+			if (deviceContext.selectedAlternateSettings.indexOfKey(ifaceId) < 0 || iface.getAlternateSetting() == 0) {
+				deviceContext.selectedAlternateSettings.put(ifaceId, iface.getAlternateSetting());
+			}
+		}
+	}
 
 	public static UsbDeviceDescriptor readDeviceDescriptor(UsbDeviceConnection devConn) {
 		byte[] descriptorBuffer = new byte[UsbDeviceDescriptor.DESCRIPTOR_SIZE];
@@ -106,26 +160,12 @@ public class UsbControlHelper {
 
 					// This is now the active configuration
 					deviceContext.activeConfiguration = config;
+					initializeDefaultAlternateSettings(deviceContext);
 
-					// Construct the cache of endpoint mappings
-					deviceContext.activeConfigurationEndpointsByNumDir = new SparseArray<>();
-					for (int j = 0; j < deviceContext.activeConfiguration.getInterfaceCount(); j++) {
-						UsbInterface iface = deviceContext.activeConfiguration.getInterface(j);
-						for (int k = 0; k < iface.getEndpointCount(); k++) {
-							UsbEndpoint endp = iface.getEndpoint(k);
-							deviceContext.activeConfigurationEndpointsByNumDir.put(
-									endp.getDirection() | endp.getEndpointNumber(),
-									endp);
-						}
-					}
+					rebuildActiveEndpointMap(deviceContext);
 
 					System.out.println("Claiming all interfaces from new configuration: "+deviceContext.activeConfiguration.getId());
-					for (int j = 0; j < deviceContext.activeConfiguration.getInterfaceCount(); j++) {
-						UsbInterface iface = deviceContext.activeConfiguration.getInterface(j);
-						if (!deviceContext.devConn.claimInterface(iface, true)) {
-							System.err.println("Unable to claim interface: "+iface.getId());
-						}
-					}
+					claimAllActiveInterfaces(deviceContext);
 
 					return true;
 				}
@@ -137,17 +177,27 @@ public class UsbControlHelper {
 			System.out.println("Handling SET_INTERFACE via Android API");
 
 			if (deviceContext.activeConfiguration != null) {
+				boolean found = false;
 				for (int i = 0; i < deviceContext.activeConfiguration.getInterfaceCount(); i++) {
 					UsbInterface iface = deviceContext.activeConfiguration.getInterface(i);
 					if (iface.getId() == index && iface.getAlternateSetting() == value) {
+						found = true;
 						if (!deviceContext.devConn.setInterface(iface)) {
 							System.err.println("Unable to set interface: "+iface.getId());
 						}
+
+						if (deviceContext.selectedAlternateSettings == null) {
+							deviceContext.selectedAlternateSettings = new SparseIntArray();
+						}
+						deviceContext.selectedAlternateSettings.put(iface.getId(), iface.getAlternateSetting());
+						rebuildActiveEndpointMap(deviceContext);
 						return true;
 					}
 				}
 
-				System.err.printf("SET_INTERFACE specified invalid interface: %d %d\n", index, value);
+				if (!found) {
+					System.err.printf("SET_INTERFACE specified invalid interface: %d %d\n", index, value);
+				}
 			}
 			else {
 				System.err.println("Attempted to use SET_INTERFACE before SET_CONFIGURATION!");

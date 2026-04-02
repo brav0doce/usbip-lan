@@ -1,0 +1,21 @@
+@Override
+public List<UsbDeviceInfo> getDevices() {
+ArrayList<UsbDeviceInfo> list = new ArrayList<>();
+
+for (UsbDevice dev : usbManager.getDeviceList().values()) {
+if (!sharedDevices.contains(dev.getDeviceId())) {
+continue;
+}
+AttachedDeviceContext context = connections.get(dev.getDeviceId());
+UsbDeviceConnection devConn = null;
+if (context != null) {
+devConn = context.devConn;
+}
+
+list.add(getInfoForDevice(dev, devConn));
+}
+
+return list;
+}
+
+public static void dumpInterfaces(UsbDevice dev) {

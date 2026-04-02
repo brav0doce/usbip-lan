@@ -76,6 +76,10 @@ namespace UsbIpClientApp
                 if (existing == null)
                 {
                     _servers.Add(server);
+                    if (_selectedServer == null)
+                    {
+                        LstServers.SelectedItem = server;
+                    }
                     SetStatus($"Servidor encontrado: {server}");
                     return;
                 }
@@ -87,6 +91,11 @@ namespace UsbIpClientApp
                 if (_selectedServer?.IpAddress == existing.IpAddress)
                 {
                     TxtServerInfo.Text = $"Servidor: {existing.IpAddress}:{existing.Port}";
+                }
+
+                if (_selectedServer == null && LstServers.SelectedItem == null)
+                {
+                    LstServers.SelectedItem = existing;
                 }
             });
         }
@@ -240,7 +249,7 @@ namespace UsbIpClientApp
                 MessageBox.Show(
                     "No se encontró el puerto USB/IP activo para este dispositivo.\n" +
                     "Usa 'Puertos activos' para ver los puertos y desconecta manualmente con:\n" +
-                    "  usbip detach --port=<N>",
+                    "  usbip detach -p <N>",
                     "Puerto no encontrado",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);

@@ -1,8 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
-using System.Net.Sockets;
-using System.Text;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.RegularExpressions;
 using UsbIpClientApp.Models;
 
 namespace UsbIpClientApp
@@ -22,13 +23,6 @@ namespace UsbIpClientApp
     /// </summary>
     public class UsbIpClient : IDisposable
     {
-        private const short UsbIpVersion = 0x0111;
-        private const short OP_REQ_DEVLIST = unchecked((short)0x8005);
-        private const short OP_REP_DEVLIST = 0x0005;
-        private const short OP_REQ_IMPORT  = unchecked((short)0x8003);
-        private const short OP_REP_IMPORT  = 0x0003;
-        private const int   ST_OK = 0;
-
         private static string? _usbipExePath;
 
         private bool _disposed;
@@ -38,43 +32,18 @@ namespace UsbIpClientApp
         // ─────────────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Connects to the server and retrieves the exported device list.
+        /// Queries the server using usbip-win2 and parses the exported device list.
         /// </summary>
         public async Task<List<UsbDevice>> GetDeviceListAsync(
             UsbIpServer server,
             CancellationToken ct = default)
         {
-            using var tcp = new TcpClient();
-            await tcp.ConnectAsync(server.IpAddress, server.Port, ct);
-            tcp.NoDelay = true;
+            var usbipExe = ResolveUsbipExePath();
+            if (usbipExe == null)
+                throw new InvalidOperationException("usbip.exe no encontrado. Instala usbip-win2 primero.");
 
-            await using var stream = tcp.GetStream();
-            using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
-            using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
-
-            // Send OP_REQ_DEVLIST
-            WriteHeader(writer, OP_REQ_DEVLIST);
-            writer.Flush();
-
-            // Read OP_REP_DEVLIST header (16 bytes)
-            ReadBigEndianInt16(reader); // protocol version
-            var code    = ReadBigEndianInt16(reader);
-            var status  = ReadBigEndianInt32(reader);
-            var count   = ReadBigEndianInt32(reader);
-
-            if (code != OP_REP_DEVLIST)
-                throw new InvalidOperationException($"Unexpected USB/IP reply code: 0x{(ushort)code:X4}");
-
-            if (status != ST_OK)
-                throw new InvalidOperationException($"Server returned status {status}");
-
-            var devices = new List<UsbDevice>(count);
-            for (int i = 0; i < count; i++)
-            {
-                var dev = ReadDeviceEntry(reader, server);
-                devices.Add(dev);
-            }
-            return devices;
+            var output = await RunUsbipCaptureAsync(usbipExe, $"list -r {server.IpAddress}", ct);
+            return ParseUsbipListOutput(output, server);
         }
 
         // ─────────────────────────────────────────────────────────────────────
@@ -169,6 +138,18 @@ namespace UsbIpClientApp
             return (proc.ExitCode == 0, sb.ToString().Trim());
         }
 
+        private static async Task<string> RunUsbipCaptureAsync(
+            string usbipExe,
+            string args,
+            CancellationToken ct)
+        {
+            var (ok, output) = await RunUsbipAsync(usbipExe, args, ct);
+            if (!ok && string.IsNullOrWhiteSpace(output))
+                throw new InvalidOperationException("No se pudo ejecutar usbip.exe.");
+
+            return output;
+        }
+
         private static string? ResolveUsbipExePath()
         {
             if (_usbipExePath != null && File.Exists(_usbipExePath))
@@ -178,7 +159,9 @@ namespace UsbIpClientApp
             {
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "usbip.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "USBip", "usbip.exe"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "USBip", "usbip.exe")
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "usbip-win2", "usbip.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "USBip", "usbip.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "usbip-win2", "usbip.exe")
             };
 
             var pathValue = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
@@ -204,93 +187,60 @@ namespace UsbIpClientApp
             return null;
         }
 
-        private static UsbDevice ReadDeviceEntry(BinaryReader reader, UsbIpServer server)
+        private static List<UsbDevice> ParseUsbipListOutput(string output, UsbIpServer server)
         {
-            // path: 256 bytes
-            var pathBytes = ReadExact(reader, 256);
-            var path = Encoding.ASCII.GetString(pathBytes).TrimEnd('\0');
+            var devices = new List<UsbDevice>();
+            UsbDevice? current = null;
 
-            // busId: 32 bytes
-            var busIdBytes = ReadExact(reader, 32);
-            var busId = Encoding.ASCII.GetString(busIdBytes).TrimEnd('\0');
+            var deviceLine = new Regex(@"^\s*(?<busid>[0-9]+(?:[\-.][0-9]+)*):\s*(?<vendor>.*?)\s*:\s*(?<product>.*?)\s*\((?<vid>[0-9A-Fa-f]{4}):(?<pid>[0-9A-Fa-f]{4})\)\s*$", RegexOptions.Compiled);
+            var pathLine = new Regex(@"^\s*:\s*(?<path>.+?)\s*$", RegexOptions.Compiled);
+            var classLine = new Regex(@"^\s*:\s*\((?<label>.+?)\)\s*\((?<cls>[0-9A-Fa-f]{2})/(?<sub>[0-9A-Fa-f]{2})/(?<proto>[0-9A-Fa-f]{2})\)\s*$", RegexOptions.Compiled);
 
-            var busNum   = ReadBigEndianInt32(reader);
-            var devNum   = ReadBigEndianInt32(reader);
-            var speed    = ReadBigEndianInt32(reader);
-            var vendorId = (ushort)ReadBigEndianInt16(reader);
-            var prodId   = (ushort)ReadBigEndianInt16(reader);
-            var bcd      = (ushort)ReadBigEndianInt16(reader);
-
-            var devClass    = reader.ReadByte();
-            var devSubClass = reader.ReadByte();
-            var devProto    = reader.ReadByte();
-            var configVal   = reader.ReadByte();
-            var numConfigs  = reader.ReadByte();
-            var numIfaces   = reader.ReadByte();
-
-            // Read interface entries (4 bytes each)
-            for (int i = 0; i < numIfaces; i++)
-                ReadExact(reader, 4);
-
-            return new UsbDevice
+            foreach (var rawLine in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
-                Path            = path,
-                BusId           = busId,
-                BusNum          = busNum,
-                DevNum          = devNum,
-                Speed           = speed,
-                VendorId        = vendorId,
-                ProductId       = prodId,
-                BcdDevice       = bcd,
-                DeviceClass     = devClass,
-                DeviceSubClass  = devSubClass,
-                DeviceProtocol  = devProto,
-                NumInterfaces   = numIfaces,
-                Server          = server
-            };
-        }
+                var line = rawLine.TrimEnd();
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    current = null;
+                    continue;
+                }
 
-        private static void WriteHeader(BinaryWriter writer, short opCode, int status = 0)
-        {
-            writer.Write(ReverseBytes(UsbIpVersion));
-            writer.Write(ReverseBytes(opCode));
-            writer.Write(ReverseBytes(status));
-        }
+                var deviceMatch = deviceLine.Match(line);
+                if (deviceMatch.Success)
+                {
+                    try {
+                        current = new UsbDevice
+                        {
+                            BusId = deviceMatch.Groups["busid"].Value.Trim(),
+                            VendorId = ushort.Parse(deviceMatch.Groups["vid"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+                            ProductId = ushort.Parse(deviceMatch.Groups["pid"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+                            Server = server
+                        };
+                        devices.Add(current);
+                    } catch (Exception) { current = null; }
+                    continue;
+                }
 
-        private static short ReadBigEndianInt16(BinaryReader r)
-        {
-            var bytes = ReadExact(r, 2);
-            if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
-            return BitConverter.ToInt16(bytes, 0);
-        }
+                if (current == null)
+                    continue;
 
-        private static int ReadBigEndianInt32(BinaryReader r)
-        {
-            var bytes = ReadExact(r, 4);
-            if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
-            return BitConverter.ToInt32(bytes, 0);
-        }
+                var pathMatch = pathLine.Match(line);
+                if (pathMatch.Success && string.IsNullOrWhiteSpace(current.Path))
+                {
+                    current.Path = pathMatch.Groups["path"].Value.Trim();
+                    continue;
+                }
 
-        private static byte[] ReadExact(BinaryReader reader, int count)
-        {
-            var bytes = reader.ReadBytes(count);
-            if (bytes.Length != count)
-                throw new EndOfStreamException($"Expected {count} bytes but received {bytes.Length}.");
-            return bytes;
-        }
+                var classMatch = classLine.Match(line);
+                if (classMatch.Success)
+                {
+                    current.DeviceClass = byte.Parse(classMatch.Groups["cls"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                    current.DeviceSubClass = byte.Parse(classMatch.Groups["sub"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                    current.DeviceProtocol = byte.Parse(classMatch.Groups["proto"].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                }
+            }
 
-        private static short ReverseBytes(short value)
-        {
-            var bytes = BitConverter.GetBytes(value);
-            Array.Reverse(bytes);
-            return BitConverter.ToInt16(bytes, 0);
-        }
-
-        private static int ReverseBytes(int value)
-        {
-            var bytes = BitConverter.GetBytes(value);
-            Array.Reverse(bytes);
-            return BitConverter.ToInt32(bytes, 0);
+            return devices;
         }
 
         public void Dispose()

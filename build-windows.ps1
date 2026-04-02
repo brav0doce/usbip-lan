@@ -14,11 +14,28 @@ $ErrorActionPreference = "Stop"
 
 $projectDir = Join-Path $PSScriptRoot "windows-client"
 $outDir     = Join-Path $PSScriptRoot "release\windows"
+$usbipInstaller = Join-Path $outDir "usbip-win2-installer.exe"
 
 Write-Host "`n  Building USB/IP LAN Client …`n"
 
 # Restore packages
 dotnet restore "$projectDir\UsbIpClient.csproj"
+
+Write-Host "`n  Downloading usbip-win2 installer …`n"
+try {
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/vadimgrn/usbip-win2/releases/latest" -Headers @{ "User-Agent" = "usbip-lan-build/1.0" }
+    $asset = $release.assets | Where-Object { $_.name -like "*x64-release.exe" } | Select-Object -First 1
+    if ($asset) {
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $usbipInstaller -UseBasicParsing
+        Write-Host "  ✓ usbip-win2 installer cached at $usbipInstaller" -ForegroundColor Green
+    }
+    else {
+        Write-Host "  ! No x64 release asset found for usbip-win2; Install.ps1 will download it at install time." -ForegroundColor Yellow
+    }
+}
+catch {
+    Write-Host "  ! Could not cache usbip-win2 installer now; Install.ps1 will download it if needed." -ForegroundColor Yellow
+}
 
 # Build + publish as single EXE
 dotnet publish "$projectDir\UsbIpClient.csproj" `
@@ -41,7 +58,11 @@ if (Test-Path $exe) {
 
     $zipPath = Join-Path $PSScriptRoot "release\windows\usbip-client-windows-x64-release.zip"
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-    Compress-Archive -Path "$outDir\USBIPClient.exe", "$outDir\Install.ps1" -DestinationPath $zipPath -Force
+    $archiveItems = @("$outDir\USBIPClient.exe", "$outDir\Install.ps1")
+    if (Test-Path $usbipInstaller) {
+        $archiveItems += $usbipInstaller
+    }
+    Compress-Archive -Path $archiveItems -DestinationPath $zipPath -Force
     Write-Host "  ✓ Installer bundle created: $zipPath"
 } else {
     Write-Host "  Build failed – EXE not found." -ForegroundColor Red

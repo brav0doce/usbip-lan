@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <TargetFramework>net6.0-windows</TargetFramework>
     <RootNamespace>UsbIpClientApp</RootNamespace>
     <AssemblyName>USBIPClient</AssemblyName>

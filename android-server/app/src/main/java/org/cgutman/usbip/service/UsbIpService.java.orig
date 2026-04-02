@@ -92,19 +92,16 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 				if (dev == null) {
 					return;
 				}
-                                synchronized (dev) {
-                                        permission.put(dev.getDeviceId(), intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false));
-                                        dev.notifyAll();
-                                }
+
+				synchronized (dev) {
+					permission.put(dev.getDeviceId(), intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false));
+					dev.notifyAll();
+				}
                         } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
                                 UsbDevice dev = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                                 if (dev != null && !usbManager.hasPermission(dev)) {
                                         usbManager.requestPermission(dev, usbPermissionIntent);
                                 }
-                        }
-                }
-        };
-	
 	private void updateNotification() {
 		Intent intent = new Intent(this, UsbIpConfig.class);
 		intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -211,10 +208,9 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		i.setPackage(getPackageName());
 
 		usbPermissionIntent = PendingIntent.getBroadcast(this, 0, i, intentFlags);
-		IntentFilter filter = new IntentFilter();
-		filter.addAction(ACTION_USB_PERMISSION);
-		filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                IntentFilter filter = new IntentFilter();
+                filter.addAction(ACTION_USB_PERMISSION);
+                filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
 			registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED);
 		}
 		else {
@@ -247,15 +243,12 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		updateNotification();
 
-		for (UsbDevice dev : usbManager.getDeviceList().values()) {
-			if (!usbManager.hasPermission(dev)) {
-				usbManager.requestPermission(dev, usbPermissionIntent);
-			}
-		}
-	}
-	
-	@Override
-	public void onDestroy() {
+                // Auto-claim all already attached devices at startup
+                for (UsbDevice dev : usbManager.getDeviceList().values()) {
+                        if (!usbManager.hasPermission(dev)) {
+                                usbManager.requestPermission(dev, usbPermissionIntent);
+                        }
+                }
 		super.onDestroy();
 		
 		server.stop();
@@ -454,9 +447,7 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		ipDev.idVendor = (short) dev.getVendorId();
 		ipDev.idProduct = (short) dev.getProductId();
-		ipDev.bcdDevice = 0x0200;
-		
-		ipDev.bDeviceClass = (byte) dev.getDeviceClass();
+                ipDev.bcdDevice = 0x0200; // Provide a valid fallback if descriptor is missing
 		ipDev.bDeviceSubClass = (byte) dev.getDeviceSubclass();
 		ipDev.bDeviceProtocol = (byte) dev.getDeviceProtocol();
 
@@ -479,14 +470,13 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		
 		AttachedDeviceContext context = connections.get(dev.getDeviceId());
 		UsbDeviceDescriptor devDesc = null;
-		if (devConn != null) {
-			devDesc = UsbControlHelper.readDeviceDescriptor(devConn);
-			if (devDesc != null) {
-				ipDev.bDeviceClass = devDesc.bDeviceClass;
-				ipDev.bDeviceSubClass = devDesc.bDeviceSubClass;
-				ipDev.bDeviceProtocol = devDesc.bDeviceProtocol;
-				ipDev.bcdDevice = devDesc.bcdDevice;
-			}
+                if (devConn != null) {
+                        // We can query the USB descriptors to fill information Android's USB API limits
+                        devDesc = UsbControlHelper.readDeviceDescriptor(devConn);
+                        if (devDesc != null) {
+                                ipDev.bDeviceClass = devDesc.bDeviceClass;
+                                ipDev.bDeviceSubClass = devDesc.bDeviceSubClass;
+                                ipDev.bDeviceProtocol = devDesc.bDeviceProtocol;
 		}
 		
 		ipDev.speed = detectSpeed(dev, devDesc);
@@ -503,11 +493,27 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 			UsbDeviceConnection devConn = null;
 			if (context != null) {
 				devConn = context.devConn;
+			} else {
+				if (!usbManager.hasPermission(dev)) {
+					usbManager.requestPermission(dev, usbPermissionIntent);
+				} else {
+					try {
+						devConn = usbManager.openDevice(dev);
+					} catch (Exception ignored) {
+						devConn = null;
+					}
+				}
 			}
-			
+
 			list.add(getInfoForDevice(dev, devConn));
+
+			if (context == null && devConn != null) {
+				try {
+					devConn.close();
+				} catch (Exception ignored) {}
+			}
 		}
-		
+
 		return list;
 	}
 	
@@ -918,12 +924,6 @@ public class UsbIpService extends Service implements UsbRequestHandler {
 		} catch (InterruptedException e) {}
 
 		updateNotification();
-
-		for (UsbDevice dev : usbManager.getDeviceList().values()) {
-			if (!usbManager.hasPermission(dev)) {
-				usbManager.requestPermission(dev, usbPermissionIntent);
-			}
-		}
 	}
 	
 	@Override

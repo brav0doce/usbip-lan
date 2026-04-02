@@ -3,13 +3,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WIN_RELEASE_DIR="$ROOT_DIR/release/windows"
+USBIP_INSTALLER="$WIN_RELEASE_DIR/usbip-win2-installer.exe"
 
 echo "Building Android release..."
 "$ROOT_DIR/build-android.sh"
 
 mkdir -p "$WIN_RELEASE_DIR"
 rm -f "$ROOT_DIR/release/android/usbip-server-release.apk"
-rm -f "$WIN_RELEASE_DIR"/*.pdb "$WIN_RELEASE_DIR"/*.zip
+rm -f "$WIN_RELEASE_DIR"/*.pdb "$WIN_RELEASE_DIR"/*.zip "$USBIP_INSTALLER"
 
 echo "Preparing Windows release package..."
 
@@ -36,8 +37,25 @@ if [ "$WIN_EXE_SRC" != "$WIN_RELEASE_DIR/USBIPClient.exe" ]; then
 fi
 cp "$ROOT_DIR/windows-client/Install.ps1" "$WIN_RELEASE_DIR/Install.ps1"
 
+echo "Downloading usbip-win2 installer for the bundle..."
+usbip_api_json="$(curl -fsSL -H 'User-Agent: usbip-lan-build/1.0' https://api.github.com/repos/vadimgrn/usbip-win2/releases/latest || true)"
+usbip_asset_url="$(printf '%s' "$usbip_api_json" | sed -n 's/.*"browser_download_url": *"\([^"]*USBip-[^"]*-x64-release\.exe\)".*/\1/p' | head -n1)"
+if [ -n "$usbip_asset_url" ]; then
+    if curl -fsSL "$usbip_asset_url" -o "$USBIP_INSTALLER"; then
+        echo "Cached usbip-win2 installer: $USBIP_INSTALLER"
+    else
+        echo "Could not download usbip-win2 installer; Install.ps1 will fetch it at install time."
+    fi
+else
+    echo "Could not resolve usbip-win2 installer URL; Install.ps1 will fetch it at install time."
+fi
+
 if command -v zip >/dev/null 2>&1; then
-    (cd "$WIN_RELEASE_DIR" && zip -9 -q -r usbip-client-windows-x64-release.zip USBIPClient.exe Install.ps1)
+    bundle_items=(USBIPClient.exe Install.ps1)
+    if [ -f "$USBIP_INSTALLER" ]; then
+        bundle_items+=(usbip-win2-installer.exe)
+    fi
+    (cd "$WIN_RELEASE_DIR" && zip -9 -q -r usbip-client-windows-x64-release.zip "${bundle_items[@]}")
     echo "Windows installer bundle: release/windows/usbip-client-windows-x64-release.zip"
 else
     echo "zip command not found; left unpacked files in release/windows/."
